@@ -180,8 +180,9 @@ func newGame() (*game, error) {
 	return g, nil
 }
 
-func gameOnce(g *game, ins chan<- interface{}, outs <-chan *outbound, stop <-chan struct{}, abort <-chan struct{}) (keepGoing bool) {
+func gameOnce(g *game, ins chan<- interface{}, outs <-chan *outbound, stop <-chan bool, abort <-chan struct{}) (keepGoing bool) {
 	sentKeepPlaying := false
+	keepPlaying := true
 	for {
 		select {
 		// Forward game 'ins', aka events.
@@ -195,8 +196,14 @@ func gameOnce(g *game, ins chan<- interface{}, outs <-chan *outbound, stop <-cha
 						return true
 					} else if !sentKeepPlaying {
 						sentKeepPlaying = true
-						g.addConsumeNext(5)
-						g.outs <- makeKeepPlaying(true)
+						if keepPlaying {
+							g.addConsumeNext(5)
+						}
+						g.outs <- makeKeepPlaying(keepPlaying)
+						if !keepPlaying {
+							g.stop <- struct{}{}
+							return false
+						}
 					}
 				case *gameUpdateEvent:
 					if in.CanGiveUp && in.TimeLeft < 20 {
@@ -226,14 +233,18 @@ func gameOnce(g *game, ins chan<- interface{}, outs <-chan *outbound, stop <-cha
 			log.Println("game is aborted")
 			return true
 
-		case <-stop:
-			g.stop <- struct{}{}
-			return false
+		case hardStop, ok := <-stop:
+			if ok && hardStop {
+				g.stop <- struct{}{}
+				return false
+			} else if ok && !hardStop {
+				keepPlaying = false
+			}
 		}
 	}
 }
 
-func gameForever(ins chan<- interface{}, outs <-chan *outbound, stop <-chan struct{}, abort <-chan struct{}, errs chan<- error) {
+func gameForever(ins chan<- interface{}, outs <-chan *outbound, stop <-chan bool, abort <-chan struct{}, errs chan<- error) {
 	defer log.Println("end of gameForever")
 	for {
 		g, err := newGame()
@@ -281,7 +292,7 @@ func main() {
 	outs := make(chan *outbound)
 	errs := make(chan error)
 	prop := make(chan string)
-	stop := make(chan struct{})
+	stop := make(chan bool)
 	abort := make(chan struct{})
 
 	playing := false
@@ -332,7 +343,10 @@ func main() {
 			playing = true
 			go gameForever(ins, outs, stop, abort, errs)
 		} else if line.Text() == "!stop" && playing && isAdmin {
-			stop <- struct{}{}
+			say(grey("OK on arrête après cette manche."))
+			stop <- false
+		} else if line.Text() == "!hardstop" && playing && isSuperAdmin {
+			stop <- true
 		} else if line.Text() == "!quit" && isSuperAdmin {
 			quit <- struct{}{}
 		} else if line.Text() == "!nice" && isAdmin {
