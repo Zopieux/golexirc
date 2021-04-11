@@ -252,6 +252,7 @@ func gameForever(ins chan<- interface{}, outs <-chan *outbound, stop <-chan stru
 }
 
 func main() {
+	flag.Parse()
 	roots := map[string]bool{}
 	admins := map[string]bool{}
 	for _, x := range strings.Split(*botRoots, ",") {
