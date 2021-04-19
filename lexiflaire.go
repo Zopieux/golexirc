@@ -435,7 +435,7 @@ func main() {
 					partner = fmt.Sprintf(" Vous avez joué avec %s, rang %d.", ev.Partner, ev.PartnerRank)
 				}
 				totalScore += ev.PlayerScore
-				say(fmt.Sprintf("C'est %s, le mot était %s.%s Score : %d ⋅ Cumulé %d", emph(outcome), emph(ev.Word), partner, ev.PlayerScore, totalScore))
+				say(fmt.Sprintf("C'est %s, le mot était %s, %d (cumulé : %d)%s", emph(outcome), emph(ev.Word), ev.PlayerScore, totalScore, partner))
 
 			case *gameUpdateEvent:
 				if ev.TimeLeft > 0 && ev.TimeLeft <= announceTimeUnder {
