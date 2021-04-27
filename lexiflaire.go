@@ -14,6 +14,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -312,28 +313,28 @@ func main() {
 	cfg.SSLConfig = &tls.Config{ServerName: *ircHost}
 	cfg.Server = fmt.Sprintf("%s:%d", *ircHost, *ircPort)
 	cfg.NewNick = func(s string) string { return s + "_" }
-	client := irc.Client(cfg)
+	bot := irc.Client(cfg)
 	say := func(s string) {
-		client.Privmsg(*ircChan, s)
+		bot.Privmsg(*ircChan, s)
 	}
-	client.HandleFunc(irc.CONNECTED, func(conn *irc.Conn, line *irc.Line) {
+	bot.HandleFunc(irc.CONNECTED, func(conn *irc.Conn, line *irc.Line) {
 		log.Println("Connected to IRC, joining")
 		conn.Join(*ircChan)
 	})
-	client.HandleFunc(irc.JOIN, func(conn *irc.Conn, line *irc.Line) {
+	bot.HandleFunc(irc.JOIN, func(conn *irc.Conn, line *irc.Line) {
 		if line.Target() == *ircChan && line.Nick == *ircNick {
 			say("Coucou c'est moi.")
 		}
 	})
-	client.HandleFunc(irc.DISCONNECTED, func(conn *irc.Conn, line *irc.Line) {
+	bot.HandleFunc(irc.DISCONNECTED, func(conn *irc.Conn, line *irc.Line) {
 		log.Println("Disconnected from IRC, reconnecting")
 		time.Sleep(time.Second * 2)
-		if err := client.Connect(); err != nil {
+		if err := bot.Connect(); err != nil {
 			log.Printf("error connecting: %q", err)
 			quit <- struct{}{}
 		}
 	})
-	client.HandleFunc(irc.PRIVMSG, func(conn *irc.Conn, line *irc.Line) {
+	bot.HandleFunc(irc.PRIVMSG, func(conn *irc.Conn, line *irc.Line) {
 		if !line.Public() || line.Target() != *ircChan {
 			return
 		}
@@ -355,15 +356,33 @@ func main() {
 			outs <- makeSentiment(2)
 		} else if line.Text() == "!ffs" && isAdmin {
 			outs <- makeSentiment(3)
+		} else if line.Text() == "!score" && isAdmin {
+			go func() {
+				if stat, err := GetStats(client); err == nil {
+					var rounds = stat.Rounds
+					if rounds == 0 {
+						rounds = 1
+					}
+					say(fmt.Sprintf("%d parties jouées, dont %s victoires (%.1f%%) et %d abandons. Score : %s, position %d dans le classement.",
+						stat.Rounds,
+						green(strconv.FormatInt(stat.RoundsWon, 10)),
+						100.*float64(stat.RoundsWon)/float64(rounds),
+						stat.GivesUp,
+						green(emph(strconv.FormatInt(stat.Score, 10))),
+						stat.Rank))
+				} else {
+					log.Printf("GetStats error: %q", err)
+				}
+			}()
 		} else if canProposeNow && chars.MatchString(line.Text()) {
 			canProposeNow = false
 			prop <- line.Text()
 		}
 	})
-	defer client.Close()
+	defer bot.Close()
 	defer close(stop)
 
-	if err := client.Connect(); err != nil {
+	if err := bot.Connect(); err != nil {
 		log.Printf("error connecting: %q", err)
 		quit <- struct{}{}
 	}
