@@ -5,24 +5,26 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	irc "github.com/fluffle/goirc/client"
-	"github.com/gorilla/websocket"
 	"log"
 	"math"
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	irc "github.com/fluffle/goirc/client"
+	"github.com/gorilla/websocket"
 )
 
 var (
 	sessionCookie = flag.String("key", "", "`key` cookie")
-	ircHost       = flag.String("server", "chat.freenode.net", "IRC server hostname")
+	ircHost       = flag.String("server", "irc.libera.chat", "IRC server hostname")
 	ircPort       = flag.Uint("port", 6697, "IRC server port")
 	ircNick       = flag.String("nick", "lexiflaire", "IRC nick")
 	ircChan       = flag.String("chan", "#lexiflaire", "IRC channel")
@@ -287,7 +289,7 @@ func main() {
 	client = &http.Client{Jar: jar}
 	ws = &websocket.Dialer{Jar: client.Jar}
 
-	quit := make(chan struct{})
+	quit := make(chan struct{retCode int})
 
 	ins := make(chan interface{})
 	outs := make(chan *outbound)
@@ -331,7 +333,7 @@ func main() {
 		time.Sleep(time.Second * 2)
 		if err := bot.Connect(); err != nil {
 			log.Printf("error connecting: %q", err)
-			quit <- struct{}{}
+			quit <- struct{retCode int}{retCode: 1}
 		}
 	})
 	bot.HandleFunc(irc.PRIVMSG, func(conn *irc.Conn, line *irc.Line) {
@@ -349,7 +351,7 @@ func main() {
 		} else if line.Text() == "!hardstop" && playing && isSuperAdmin {
 			stop <- true
 		} else if line.Text() == "!quit" && isSuperAdmin {
-			quit <- struct{}{}
+			quit <- struct{retCode int}{retCode: 0}
 		} else if line.Text() == "!nice" && isAdmin {
 			outs <- makeSentiment(1)
 		} else if line.Text() == "!main" && isAdmin {
@@ -384,7 +386,7 @@ func main() {
 
 	if err := bot.Connect(); err != nil {
 		log.Printf("error connecting: %q", err)
-		quit <- struct{}{}
+		quit <- struct{retCode int}{retCode: 2}
 	}
 
 	checkBot := func() (isBot bool) {
@@ -542,7 +544,8 @@ func main() {
 				outs <- makeProposition(p)
 			}()
 
-		case <-quit:
+		case q := <-quit:
+			os.Exit(q.retCode)
 			return
 		}
 	}
